@@ -3,6 +3,7 @@ import { isResponse, requireViewer } from "@/lib/guard";
 import { bumpViews, getPost, softDeletePost, updatePost } from "@/lib/posts";
 import { attachToPost, listAttachments } from "@/lib/attachments";
 import { htmlToText, sanitizePostHtml } from "@/lib/sanitize";
+import { readDetail, readSummary, recordRead } from "@/lib/reads";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -24,12 +25,18 @@ export async function GET(_req: Request, ctx: Ctx) {
     return Response.json({ error: "볼 수 있는 권한이 없습니다." }, { status: 403 });
   }
 
+  const canSeeReaders = mayEdit(post.authorId, viewer.id, viewer.role === "admin");
+
   await bumpViews(id);
+  await recordRead(id, { id: viewer.id, name: viewer.name ?? viewer.email });
+
   return Response.json({
     // 내려보낼 때도 한 번 더 거른다. 규칙이 바뀌어도 옛 글이 새 규칙을 따른다.
     post: { ...post, content: sanitizePostHtml(post.content), views: post.views + 1 },
     attachments: await listAttachments(id),
-    mayEdit: mayEdit(post.authorId, viewer.id, viewer.role === "admin"),
+    // 읽은 '수'는 모두에게, 이름 목록은 글쓴이와 관리자에게만.
+    reads: canSeeReaders ? await readDetail(id) : await readSummary(id),
+    mayEdit: canSeeReaders,
     mayPin: viewer.role === "admin",
   });
 }
@@ -79,6 +86,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
   return Response.json({
     post: saved,
     attachments: await listAttachments(id),
+    reads: await readDetail(id),
     mayEdit: true,
     mayPin: viewer.role === "admin",
   });

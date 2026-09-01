@@ -12,12 +12,14 @@ import {
   Pin,
   Plus,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import { useConfirm } from "@/components/Confirm";
 import { RichEditor } from "@/components/RichEditor";
 import type { Attachment } from "@/lib/attachments";
 import type { Post, PostSummary } from "@/lib/posts";
+import type { ReadDetail, ReadSummary } from "@/lib/reads";
 
 type ListState = {
   pinned: PostSummary[];
@@ -32,6 +34,8 @@ type ListState = {
 type PostState = {
   post: Post;
   attachments: Attachment[];
+  /** 글쓴이·관리자에게는 이름까지, 그 밖에는 숫자만 온다. */
+  reads: ReadSummary | ReadDetail;
   mayEdit: boolean;
   mayPin: boolean;
 };
@@ -400,7 +404,10 @@ function PostView({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const { post, attachments, mayEdit } = data;
+  const { post, attachments, reads, mayEdit } = data;
+  const detail = "readers" in reads ? reads : null;
+  const [showReaders, setShowReaders] = useState(false);
+
   return (
     <article>
       <button
@@ -425,9 +432,23 @@ function PostView({
           <span>{post.authorName ?? "—"}</span>
           <span>{post.createdAt.slice(0, 16).replace(/-/g, ".")}</span>
           <span>조회 {post.views}</span>
+          {/* 읽은 사람 수는 모두에게 보인다. */}
+          <span className="flex items-center gap-1">
+            <Users size={12} />
+            읽음 {reads.readCount} / {reads.memberCount}
+          </span>
           {post.updatedAt !== post.createdAt && <span>수정됨</span>}
           {mayEdit && (
             <span className="ml-auto flex items-center gap-1">
+              {detail && (
+                <button
+                  onClick={() => setShowReaders((v) => !v)}
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-800"
+                >
+                  <Users size={13} />
+                  {showReaders ? "명단 닫기" : "읽음 명단"}
+                </button>
+              )}
               <button
                 onClick={onEdit}
                 disabled={busy}
@@ -448,6 +469,22 @@ function PostView({
           )}
         </div>
       </header>
+
+      {/* 이름 목록은 글쓴이와 관리자에게만 내려온다. */}
+      {detail && showReaders && (
+        <div className="mt-4 grid gap-3 rounded-xl border border-ink-200 bg-ink-50 p-4 sm:grid-cols-2">
+          <ReaderColumn
+            title={`읽음 ${detail.readers.length}명`}
+            people={detail.readers}
+            tone="read"
+          />
+          <ReaderColumn
+            title={`아직 안 읽음 ${detail.unread.length}명`}
+            people={detail.unread}
+            tone="unread"
+          />
+        </div>
+      )}
 
       {/*
         본문은 편집기가 만든 HTML이다. 서버가 저장할 때와 내려보낼 때
@@ -484,6 +521,47 @@ function PostView({
         </div>
       )}
     </article>
+  );
+}
+
+function ReaderColumn({
+  title,
+  people,
+  tone,
+}: {
+  title: string;
+  people: { name: string; readAt: string | null }[];
+  tone: "read" | "unread";
+}) {
+  return (
+    <div>
+      <p
+        className={`mb-2 text-[12.5px] font-medium ${
+          tone === "read" ? "text-emerald-700" : "text-ink-500"
+        }`}
+      >
+        {title}
+      </p>
+      {people.length === 0 ? (
+        <p className="text-[12.5px] text-ink-400">
+          {tone === "read" ? "아직 아무도 읽지 않았습니다." : "모두 읽었습니다."}
+        </p>
+      ) : (
+        <ul className="flex flex-wrap gap-1">
+          {people.map((p) => (
+            <li
+              key={p.name + (p.readAt ?? "")}
+              title={p.readAt ? p.readAt.slice(0, 16).replace(/-/g, ".") : undefined}
+              className={`rounded-md px-2 py-1 text-[12.5px] ${
+                tone === "read" ? "bg-white text-ink-700" : "bg-ink-200/60 text-ink-600"
+              }`}
+            >
+              {p.name}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

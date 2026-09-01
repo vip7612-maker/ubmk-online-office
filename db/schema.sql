@@ -94,3 +94,17 @@ CREATE TABLE IF NOT EXISTS favorites (
 );
 
 CREATE INDEX IF NOT EXISTS idx_fav_member ON favorites(member_id, sort_order);
+
+-- ── 읽음 확인 ───────────────────────────────────────────────────
+-- 누가 그 글을 열어 봤는지. 읽은 '수'는 모두에게, 이름 목록은
+-- 글쓴이와 관리자에게만 보인다.
+-- 이름을 함께 남기는 이유는 구성원이 지워져도 기록이 남게 하기 위해서다.
+CREATE TABLE IF NOT EXISTS post_reads (
+  post_id     TEXT NOT NULL,
+  member_id   TEXT NOT NULL,
+  member_name TEXT,
+  read_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (post_id, member_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reads_post ON post_reads(post_id);
