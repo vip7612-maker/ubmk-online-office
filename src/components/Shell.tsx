@@ -774,16 +774,10 @@ function HomeBoard({
           {viewer.name ? `${viewer.name} 선생님, 안녕하세요.` : "안녕하세요."}
         </h2>
         {/* 오늘의 말씀 — 날짜로 고르므로 하루 동안 모두 같은 구절을 본다. */}
-        <figure className="mt-5 rounded-2xl border border-ink-200 bg-white p-5 sm:p-6">
-          <blockquote className="text-[15.5px] leading-[1.85] text-ink-800 sm:text-[16px]">
-            <span className="mr-1 text-[18px] leading-none text-brand-400">&ldquo;</span>
-            {verse.text}
-            <span className="ml-0.5 text-[18px] leading-none text-brand-400">&rdquo;</span>
-          </blockquote>
-          <figcaption className="mt-3 text-[13px] font-medium text-brand-600">
-            {verse.ref}
-          </figcaption>
-        </figure>
+        <p className="mt-2 max-w-2xl text-[14.5px] leading-[1.8] text-ink-600">
+          &ldquo;{verse.text}&rdquo;{" "}
+          <span className="whitespace-nowrap text-ink-400">{verse.ref}</span>
+        </p>
 
         {links.length > 0 && (
           <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
