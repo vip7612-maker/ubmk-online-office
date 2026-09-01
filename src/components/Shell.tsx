@@ -433,35 +433,43 @@ function TreeRow({
         } ${!node.visible ? "opacity-45" : ""}`}
         style={{ paddingLeft: 10 + depth * 14 }}
       >
-        {canToggle ? (
+        {/*
+          카테고리는 이름부터 시작하고 펼침 화살표를 이름 뒤에 둔다.
+          아이콘은 실제로 열리는 메뉴에만 붙인다.
+        */}
+        <button
+          onClick={() => (isLink ? onSelect(node) : onToggle(node.id))}
+          {...(isLink ? {} : { "aria-expanded": isOpen })}
+          className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2.5 pr-1 text-left"
+        >
+          {isLink &&
+            (node.icon ? (
+              <span aria-hidden className="w-[17px] shrink-0 text-center text-[14px] leading-none">
+                {node.icon}
+              </span>
+            ) : (
+              <LinkIcon size={13} className="mx-[2px] shrink-0 opacity-55" />
+            ))}
+          <span className="truncate">{node.title}</span>
+          {/* 카테고리는 이름 전체가 토글이므로 화살표를 같은 버튼 안에 둔다. */}
+          {canToggle && !isLink && (
+            <span aria-hidden className="shrink-0 opacity-60">
+              {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </span>
+          )}
+        </button>
+
+        {/* 주소가 있으면서 하위도 가진 항목만 별도 화살표가 필요하다. */}
+        {canToggle && isLink && (
           <button
             onClick={() => onToggle(node.id)}
             aria-label={isOpen ? "접기" : "펼치기"}
             aria-expanded={isOpen}
-            className="shrink-0 rounded p-1 opacity-70 hover:opacity-100"
+            className="shrink-0 rounded p-1 opacity-60 hover:opacity-100"
           >
-            {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
-        ) : (
-          <span className="w-[23px] shrink-0" />
         )}
-
-        <button
-          onClick={() => (isLink ? onSelect(node) : onToggle(node.id))}
-          className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-0.5 pr-1 text-left"
-        >
-          {/* 관리자가 이모지를 지정했으면 그것을, 아니면 종류에 맞는 기본 아이콘을 쓴다. */}
-          {node.icon ? (
-            <span aria-hidden className="w-[17px] shrink-0 text-center text-[14px] leading-none">
-              {node.icon}
-            </span>
-          ) : isLink ? (
-            <LinkIcon size={13} className="mx-[2px] shrink-0 opacity-55" />
-          ) : (
-            <Folder size={13} className="mx-[2px] shrink-0 opacity-55" />
-          )}
-          <span className="truncate">{node.title}</span>
-        </button>
 
         {/* 열 수 있는 메뉴만 탭에 올릴 수 있다. 평소엔 숨어 있다가 올리면 나타난다. */}
         {isLink && (
