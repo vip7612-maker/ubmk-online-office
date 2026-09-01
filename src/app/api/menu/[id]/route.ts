@@ -1,5 +1,11 @@
 import { isResponse, requireAdmin } from "@/lib/guard";
-import { deleteMenuItem, getMenuTree, moveMenuItem, updateMenuItem } from "@/lib/menu";
+import {
+  deleteMenuItem,
+  getMenuTree,
+  MenuDeleteBlocked,
+  moveMenuItem,
+  updateMenuItem,
+} from "@/lib/menu";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -29,6 +35,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
     ...(body.adminOnly !== undefined ? { adminOnly: Boolean(body.adminOnly) } : {}),
     ...(body.visible !== undefined ? { visible: Boolean(body.visible) } : {}),
     ...(body.parentId !== undefined ? { parentId: body.parentId } : {}),
+    ...(body.isBoard !== undefined ? { isBoard: Boolean(body.isBoard) } : {}),
+    ...(body.writeRole !== undefined
+      ? { writeRole: body.writeRole === "member" ? ("member" as const) : ("admin" as const) }
+      : {}),
   });
   return Response.json({ tree: await getMenuTree(true) });
 }
@@ -38,6 +48,14 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   if (isResponse(admin)) return admin;
 
   const { id } = await ctx.params;
-  await deleteMenuItem(id);
+  try {
+    await deleteMenuItem(id);
+  } catch (err) {
+    // 글이 남아 있는 게시판은 지우지 않는다.
+    if (err instanceof MenuDeleteBlocked) {
+      return Response.json({ error: err.message }, { status: 409 });
+    }
+    throw err;
+  }
   return Response.json({ tree: await getMenuTree(true) });
 }

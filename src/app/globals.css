@@ -50,3 +50,61 @@ body {
 .scroll-dark::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* 게시판 본문(마크다운) 서식. Tailwind typography 없이 필요한 것만 둔다. */
+.prose-board > * + * {
+  margin-top: 0.9em;
+}
+.prose-board h1,
+.prose-board h2,
+.prose-board h3 {
+  font-weight: 700;
+  color: var(--color-ink-900);
+  line-height: 1.35;
+  margin-top: 1.6em;
+}
+.prose-board h1 { font-size: 1.35em; }
+.prose-board h2 { font-size: 1.2em; }
+.prose-board h3 { font-size: 1.05em; }
+.prose-board a { color: var(--color-brand-600); text-decoration: underline; }
+.prose-board a:hover { color: var(--color-brand-700); }
+.prose-board strong { font-weight: 700; color: var(--color-ink-900); }
+.prose-board ul,
+.prose-board ol { padding-left: 1.35em; }
+.prose-board ul { list-style: disc; }
+.prose-board ol { list-style: decimal; }
+.prose-board li + li { margin-top: 0.3em; }
+.prose-board blockquote {
+  border-left: 3px solid var(--color-ink-200);
+  padding-left: 1em;
+  color: var(--color-ink-500);
+}
+.prose-board code {
+  background: var(--color-ink-100);
+  border-radius: 4px;
+  padding: 0.12em 0.35em;
+  font-size: 0.9em;
+}
+.prose-board pre {
+  background: var(--color-ink-900);
+  color: var(--color-ink-100);
+  border-radius: 10px;
+  padding: 1em;
+  overflow-x: auto;
+}
+.prose-board pre code { background: transparent; padding: 0; }
+.prose-board table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.prose-board th,
+.prose-board td {
+  border: 1px solid var(--color-ink-200);
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+.prose-board th { background: var(--color-ink-50); font-weight: 500; }
+.prose-board img { max-width: 100%; border-radius: 8px; }
+.prose-board hr { border: 0; border-top: 1px solid var(--color-ink-200); }

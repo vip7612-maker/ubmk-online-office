@@ -1,5 +1,7 @@
 import { db, newId } from "@/lib/db";
 
+export type WriteRole = "admin" | "member";
+
 export type MenuItem = {
   id: string;
   parentId: string | null;
@@ -10,6 +12,10 @@ export type MenuItem = {
   adminOnly: boolean;
   visible: boolean;
   sortOrder: number;
+  /** 참이면 외부 주소 대신 앱 안의 게시판을 우측에 띄운다. */
+  isBoard: boolean;
+  /** 그 게시판에 글을 쓸 수 있는 최소 권한. */
+  writeRole: WriteRole;
 };
 
 export type MenuNode = MenuItem & { children: MenuNode[] };
@@ -27,6 +33,8 @@ function toItem(r: Row): MenuItem {
     adminOnly: Number(r.admin_only) === 1,
     visible: Number(r.visible) === 1,
     sortOrder: Number(r.sort_order),
+    isBoard: Number(r.is_board) === 1,
+    writeRole: r.write_role === "member" ? "member" : "admin",
   };
 }
 
@@ -75,6 +83,8 @@ export async function createMenuItem(input: {
   icon?: string | null;
   openInNew?: boolean;
   adminOnly?: boolean;
+  isBoard?: boolean;
+  writeRole?: WriteRole;
 }): Promise<string> {
   const parentId = input.parentId || null;
   const res = await db.execute({
@@ -86,17 +96,21 @@ export async function createMenuItem(input: {
 
   await db.execute({
     sql: `INSERT INTO menu_items
-            (id, parent_id, title, url, icon, open_in_new, admin_only, visible, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+            (id, parent_id, title, url, icon, open_in_new, admin_only, visible, sort_order,
+             is_board, write_role)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
     args: [
       id,
       parentId,
       input.title.trim(),
-      input.url?.trim() || null,
+      // 게시판은 앱 안에서 열리므로 외부 주소를 갖지 않는다.
+      input.isBoard ? null : input.url?.trim() || null,
       input.icon?.trim() || null,
       input.openInNew ? 1 : 0,
       input.adminOnly ? 1 : 0,
       next,
+      input.isBoard ? 1 : 0,
+      input.writeRole === "member" ? "member" : "admin",
     ],
   });
   return id;
@@ -112,6 +126,8 @@ export async function updateMenuItem(
     adminOnly?: boolean;
     visible?: boolean;
     parentId?: string | null;
+    isBoard?: boolean;
+    writeRole?: WriteRole;
   },
 ): Promise<void> {
   const sets: string[] = [];
@@ -145,6 +161,18 @@ export async function updateMenuItem(
     sets.push("parent_id = ?");
     args.push(patch.parentId || null);
   }
+  if (patch.isBoard !== undefined) {
+    sets.push("is_board = ?");
+    args.push(patch.isBoard ? 1 : 0);
+    // 게시판으로 바꾸면 외부 주소는 의미가 없어지므로 비운다.
+    if (patch.isBoard) {
+      sets.push("url = NULL");
+    }
+  }
+  if (patch.writeRole !== undefined) {
+    sets.push("write_role = ?");
+    args.push(patch.writeRole === "member" ? "member" : "admin");
+  }
   if (!sets.length) return;
 
   sets.push("updated_at = datetime('now')");
@@ -155,8 +183,8 @@ export async function updateMenuItem(
   });
 }
 
-/** ON DELETE CASCADE가 켜져 있지 않을 수 있어 하위 항목을 직접 훑어 지운다. */
-export async function deleteMenuItem(id: string): Promise<void> {
+/** 이 항목과 그 아래 모든 자손의 id. */
+async function withDescendants(id: string): Promise<string[]> {
   const all = await listMenuItems();
   const doomed = new Set<string>([id]);
   let grew = true;
@@ -169,6 +197,41 @@ export async function deleteMenuItem(id: string): Promise<void> {
       }
     }
   }
+  return [...doomed];
+}
+
+/** 삭제를 막아야 할 때 던진다. API가 사람 말로 바꿔 내려보낸다. */
+export class MenuDeleteBlocked extends Error {}
+
+/**
+ * 메뉴를 지운다. ON DELETE CASCADE가 켜져 있지 않을 수 있어 자손을 직접 훑는다.
+ *
+ * 글이 남아 있는 게시판은 지우지 않는다. 메뉴는 다시 만들면 그만이지만
+ * 글은 그렇지 않다. 당장 안 보이게만 하려면 '메뉴에 표시'를 끄면 된다.
+ */
+export async function deleteMenuItem(id: string): Promise<void> {
+  const doomed = await withDescendants(id);
+
+  const res = await db.execute({
+    sql: `SELECT m.title AS title, count(p.id) AS n
+            FROM menu_items m
+            JOIN posts p ON p.board_id = m.id AND p.deleted_at IS NULL
+           WHERE m.id IN (${doomed.map(() => "?").join(",")})
+           GROUP BY m.id`,
+    args: doomed,
+  });
+
+  if (res.rows.length) {
+    const detail = res.rows
+      .map((r) => `'${String((r as Row).title)}' ${Number((r as Row).n)}건`)
+      .join(", ");
+    throw new MenuDeleteBlocked(
+      `글이 남아 있는 게시판은 지울 수 없습니다 (${detail}). ` +
+        `글을 먼저 옮기거나 지운 뒤에 다시 시도하세요. ` +
+        `당장 감추기만 하려면 '메뉴에 표시'를 끄면 됩니다.`,
+    );
+  }
+
   for (const victim of doomed) {
     await db.execute({ sql: "DELETE FROM menu_items WHERE id = ?", args: [victim] });
   }

@@ -14,7 +14,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import type { MenuNode } from "@/lib/menu";
+import type { MenuNode, WriteRole } from "@/lib/menu";
 
 type Draft = {
   title: string;
@@ -22,6 +22,8 @@ type Draft = {
   openInNew: boolean;
   adminOnly: boolean;
   visible: boolean;
+  isBoard: boolean;
+  writeRole: WriteRole;
 };
 
 export function MenuAdmin({ initialTree }: { initialTree: MenuNode[] }) {
@@ -154,9 +156,12 @@ export function MenuAdmin({ initialTree }: { initialTree: MenuNode[] }) {
       </div>
 
       <p className="mt-3 text-[12.5px] leading-relaxed text-ink-400">
-        · 주소를 비워두면 <b>카테고리</b>가 되어 하위 항목을 펼치는 용도로만 쓰입니다.
-        <br />· 구글·네이버처럼 삽입을 막아둔 사이트는 화면이 비어 보일 수 있습니다. 그런
-        메뉴는 <b>새 창으로 열기</b>를 켜 두세요.
+        · 주소를 비워두면 <b>카테고리</b>가 되어 하위 항목을 펼치고 접는 용도로만 쓰입니다.
+        <br />· 주소가 있는 <b>메뉴</b>는 누르면 언제나 오른쪽 화면에 열립니다.
+        <br />· <b>앱 안의 게시판</b>으로 두면 외부 주소 대신 이 앱에 글을 쌓는 게시판이 열립니다.
+        <br />· 구글·네이버처럼 삽입을 막아둔 사이트는 오른쪽이 비어 보일 수 있습니다. 그런
+        메뉴는 <b>삽입 차단 안내 표시</b>를 켜 두면 새 창으로 여는 안내가 함께 뜹니다.
+        <br />· 글이 남아 있는 게시판은 지워지지 않습니다. 감추려면 <b>메뉴에 표시</b>를 끄세요.
       </p>
     </div>
   );
@@ -214,11 +219,18 @@ function Row(props: RowProps) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="truncate text-[14px] font-medium text-ink-900">{node.title}</span>
-            {isCategory && (
-              <Badge className="bg-ink-100 text-ink-500">카테고리</Badge>
+            {node.isBoard ? (
+              <Badge className="bg-emerald-100 text-emerald-700">게시판</Badge>
+            ) : (
+              isCategory && <Badge className="bg-ink-100 text-ink-500">카테고리</Badge>
+            )}
+            {node.isBoard && (
+              <Badge className="bg-ink-100 text-ink-500">
+                쓰기 {node.writeRole === "member" ? "전체" : "관리자"}
+              </Badge>
             )}
             {node.openInNew && (
-              <Badge className="bg-amber-100 text-amber-700">새 창</Badge>
+              <Badge className="bg-amber-100 text-amber-700">삽입 주의</Badge>
             )}
             {node.adminOnly && (
               <Badge className="bg-violet-100 text-violet-700">관리자 전용</Badge>
@@ -300,6 +312,8 @@ function Row(props: RowProps) {
               openInNew: node.openInNew,
               adminOnly: node.adminOnly,
               visible: node.visible,
+              isBoard: node.isBoard,
+              writeRole: node.writeRole,
             }}
             showVisible
             onCancel={() => setEditing(null)}
@@ -356,7 +370,15 @@ function ItemForm({
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(
-    initial ?? { title: "", url: "", openInNew: false, adminOnly: false, visible: true },
+    initial ?? {
+      title: "",
+      url: "",
+      openInNew: false,
+      adminOnly: false,
+      visible: true,
+      isBoard: false,
+      writeRole: "admin",
+    },
   );
   const [busy, setBusy] = useState(false);
 
@@ -389,20 +411,45 @@ function ItemForm({
             주소 {isCategory && <span className="text-ink-400">(비우면 카테고리)</span>}
           </span>
           <input
-            value={draft.url}
+            value={draft.isBoard ? "" : draft.url}
+            disabled={draft.isBoard}
             onChange={(e) => setDraft({ ...draft, url: e.target.value })}
-            placeholder="https://..."
-            className="w-full rounded-lg border border-ink-300 px-3 py-2 text-[13.5px] outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            placeholder={draft.isBoard ? "게시판은 앱 안에서 열립니다" : "https://..."}
+            className="w-full rounded-lg border border-ink-300 px-3 py-2 text-[13.5px] outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:bg-ink-50 disabled:text-ink-400"
           />
         </label>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="mt-3 rounded-lg border border-ink-200 bg-ink-50 p-3">
         <Check
-          label="새 창으로 열기"
-          checked={draft.openInNew}
-          onChange={(v) => setDraft({ ...draft, openInNew: v })}
+          label="앱 안의 게시판으로 쓰기"
+          checked={draft.isBoard}
+          onChange={(v) => setDraft({ ...draft, isBoard: v })}
         />
+        {draft.isBoard && (
+          <label className="mt-2.5 flex flex-wrap items-center gap-2 text-[13px] text-ink-700">
+            글쓰기 권한
+            <select
+              value={draft.writeRole}
+              onChange={(e) => setDraft({ ...draft, writeRole: e.target.value as WriteRole })}
+              className="rounded-lg border border-ink-300 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-brand-500"
+            >
+              <option value="admin">관리자만</option>
+              <option value="member">모든 구성원</option>
+            </select>
+            <span className="text-[12px] text-ink-400">읽기는 메뉴가 보이는 사람 모두</span>
+          </label>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        {!draft.isBoard && (
+          <Check
+            label="삽입 차단 안내 표시"
+            checked={draft.openInNew}
+            onChange={(v) => setDraft({ ...draft, openInNew: v })}
+          />
+        )}
         <Check
           label="관리자만 보기"
           checked={draft.adminOnly}

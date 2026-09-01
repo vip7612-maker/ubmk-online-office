@@ -24,6 +24,8 @@ export async function POST(req: Request) {
     icon: body.icon ?? null,
     openInNew: Boolean(body.openInNew),
     adminOnly: Boolean(body.adminOnly),
+    isBoard: Boolean(body.isBoard),
+    writeRole: body.writeRole === "member" ? "member" : "admin",
   });
   // 화면이 곧바로 최신 상태를 그릴 수 있도록 트리를 함께 돌려준다.
   return Response.json({ id, tree: await getMenuTree(true) }, { status: 201 });

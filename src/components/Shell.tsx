@@ -15,6 +15,7 @@ import {
   Settings,
   X,
 } from "lucide-react";
+import { Board } from "@/components/Board";
 import { Logo } from "@/components/Logo";
 import type { MenuNode } from "@/lib/menu";
 import type { Viewer } from "@/lib/guard";
@@ -22,11 +23,16 @@ import { signOutAction } from "@/app/actions";
 
 type Props = { tree: MenuNode[]; viewer: Viewer; initialId: string | null };
 
-/** 링크(= url이 있는 항목)만 평평하게 뽑는다. 새로고침 복원과 홈 카드에 쓴다. */
+/** 눌렀을 때 우측에 뭔가 열리는 항목인가. 외부 주소이거나 앱 안의 게시판. */
+function isOpenable(n: MenuNode): boolean {
+  return Boolean(n.url) || n.isBoard;
+}
+
+/** 열 수 있는 항목만 평평하게 뽑는다. 홈 화면 카드에 쓴다. */
 function flattenLinks(nodes: MenuNode[], trail: string[] = []): (MenuNode & { trail: string[] })[] {
-  // 주소가 있으면 자기 자신을 담고, 하위는 링크 여부와 상관없이 계속 훑는다.
+  // 자기 자신이 열리는 항목이면 담고, 하위는 그와 상관없이 계속 훑는다.
   return nodes.flatMap((n) => [
-    ...(n.url ? [{ ...n, trail }] : []),
+    ...(isOpenable(n) ? [{ ...n, trail }] : []),
     ...flattenLinks(n.children, [...trail, n.title]),
   ]);
 }
@@ -48,7 +54,8 @@ function findWithTrail(
 export function Shell({ tree, viewer, initialId }: Props) {
   // 서버가 넘겨준 ?m= 으로 첫 화면을 맞춘다. 없으면 홈.
   const start = initialId ? findWithTrail(tree, initialId) : null;
-  const startNode = start?.node.url ? start.node : null;
+
+  const startNode = start && isOpenable(start.node) ? start.node : null;
 
   const [activeId, setActiveId] = useState<string | null>(startNode?.id ?? null);
   const [open, setOpen] = useState<Record<string, boolean>>(() =>
@@ -60,22 +67,19 @@ export function Shell({ tree, viewer, initialId }: Props) {
   const links = useMemo(() => flattenLinks(tree), [tree]);
   const active = activeId ? findWithTrail(tree, activeId) : null;
 
-  /** 메뉴를 열고, 조상 카테고리를 모두 펼치고, 주소창에 남긴다. */
+  /**
+   * 메뉴를 우측에 띄운다 — 외부 주소면 프레임에, 게시판이면 앱 안의 목록으로.
+   * 카테고리는 펼치고 접는 역할만 하므로 여기로 오지 않는다.
+   */
   const openItem = useCallback(
     (node: MenuNode) => {
-      if (!node.url) return;
-      if (node.openInNew) {
-        window.open(node.url, "_blank", "noopener,noreferrer");
-        return;
-      }
+      if (!isOpenable(node)) return;
       const hit = findWithTrail(tree, node.id);
-      if (hit) {
-        setOpen((prev) => {
-          const next = { ...prev };
-          hit.trail.forEach((t) => (next[t.id] = true));
-          return next;
-        });
-      }
+      setOpen((prev) => {
+        const next = { ...prev };
+        hit?.trail.forEach((t) => (next[t.id] = true));
+        return next;
+      });
       setActiveId(node.id);
       setNavOpen(false);
       const url = new URL(window.location.href);
@@ -223,7 +227,7 @@ export function Shell({ tree, viewer, initialId }: Props) {
             )}
           </div>
 
-          {active?.node.url && (
+          {active?.node.url && !active.node.isBoard && (
             <div className="flex shrink-0 items-center gap-1">
               <button
                 onClick={() => setReloadKey((k) => k + 1)}
@@ -246,15 +250,34 @@ export function Shell({ tree, viewer, initialId }: Props) {
         </header>
 
         <div className="min-h-0 flex-1">
-          {active?.node.url ? (
-            <iframe
-              key={`${active.node.id}-${reloadKey}`}
-              src={active.node.url}
-              title={active.node.title}
-              className="h-full w-full border-0 bg-white"
-              sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-downloads allow-modals allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
+          {active?.node.isBoard ? (
+            <Board boardId={active.node.id} boardTitle={active.node.title} />
+          ) : active?.node.url ? (
+            <div className="flex h-full flex-col">
+              {/* 삽입이 막힐 수 있다고 표시해 둔 메뉴에만 붙는 안내 */}
+              {active.node.openInNew && (
+                <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12.5px] text-amber-800">
+                  <span>이 사이트는 삽입을 막아 화면이 비어 보일 수 있습니다.</span>
+                  <a
+                    href={active.node.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-amber-900 underline"
+                  >
+                    새 창에서 열기
+                    <ExternalLink size={12} />
+                  </a>
+                </div>
+              )}
+              <iframe
+                key={`${active.node.id}-${reloadKey}`}
+                src={active.node.url}
+                title={active.node.title}
+                className="min-h-0 w-full flex-1 border-0 bg-white"
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-downloads allow-modals allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            </div>
           ) : (
             <HomeBoard links={links} onSelect={openItem} viewer={viewer} />
           )}
@@ -281,7 +304,7 @@ function TreeRow({
 }) {
   // 주소가 있으면 링크, 없으면 카테고리. 둘은 배타적이지 않아서
   // 주소도 있고 하위도 있는 항목은 '열기'와 '펼치기'를 따로 가진다.
-  const isLink = Boolean(node.url);
+  const isLink = isOpenable(node);
   const hasChildren = node.children.length > 0;
   const canToggle = hasChildren || !isLink;
   const isOpen = open[node.id] ?? false;
@@ -315,7 +338,6 @@ function TreeRow({
           className="flex min-w-0 flex-1 items-center gap-1.5 py-2 pl-1.5 pr-2.5 text-left"
         >
           <span className="truncate">{node.title}</span>
-          {node.openInNew && <ExternalLink size={12} className="ml-auto shrink-0 opacity-50" />}
         </button>
       </div>
 

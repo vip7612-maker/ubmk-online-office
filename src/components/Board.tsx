@@ -1,0 +1,486 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  Pencil,
+  Pin,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import type { Post, PostSummary } from "@/lib/posts";
+
+type ListState = {
+  pinned: PostSummary[];
+  posts: PostSummary[];
+  total: number;   // 고정 글까지 포함한 전체
+  listed: number;  // 고정을 뺀 수 — 번호와 쪽 나눔의 기준
+  page: number;
+  pageCount: number;
+  canWrite: boolean;
+};
+
+type View =
+  | { kind: "list" }
+  | { kind: "post"; id: string }
+  | { kind: "write" }
+  | { kind: "edit"; post: Post };
+
+/** 우측 패널에 뜨는 게시판. 목록 · 글 보기 · 쓰기를 한 자리에서 오간다. */
+export function Board({ boardId, boardTitle }: { boardId: string; boardTitle: string }) {
+  const [view, setView] = useState<View>({ kind: "list" });
+  const [list, setList] = useState<ListState | null>(null);
+  const [post, setPost] = useState<{ post: Post; mayEdit: boolean; mayPin: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadList = useCallback(
+    async (page = 1) => {
+      setError(null);
+      setBusy(true);
+      try {
+        const res = await fetch(`/api/boards/${boardId}/posts?page=${page}`);
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(body.error ?? "목록을 불러오지 못했습니다.");
+          return;
+        }
+        setList(body);
+      } catch {
+        setError("서버에 연결하지 못했습니다.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [boardId],
+  );
+
+  // 게시판이 바뀌면 목록부터 다시 시작한다.
+  useEffect(() => {
+    setView({ kind: "list" });
+    setPost(null);
+    void loadList(1);
+  }, [loadList]);
+
+  const openPost = async (id: string) => {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/posts/${id}`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error ?? "글을 불러오지 못했습니다.");
+        return;
+      }
+      setPost(body);
+      setView({ kind: "post", id });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const backToList = () => {
+    setPost(null);
+    setView({ kind: "list" });
+    void loadList(list?.page ?? 1);
+  };
+
+  const save = async (draft: { title: string; content: string; pinned: boolean }) => {
+    setError(null);
+    setBusy(true);
+    try {
+      const editing = view.kind === "edit" ? view.post : null;
+      const res = await fetch(
+        editing ? `/api/posts/${editing.id}` : `/api/boards/${boardId}/posts`,
+        {
+          method: editing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(draft),
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error ?? "저장하지 못했습니다.");
+        return false;
+      }
+      if (editing) await openPost(editing.id);
+      else {
+        setView({ kind: "list" });
+        setList(body);
+      }
+      return true;
+    } catch {
+      setError("서버에 연결하지 못했습니다.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (target: Post) => {
+    if (!confirm(`'${target.title}' 글을 지울까요?`)) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/posts/${target.id}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error ?? "지우지 못했습니다.");
+        return;
+      }
+      backToList();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="h-full overflow-y-auto bg-white">
+      <div className="mx-auto max-w-4xl px-6 py-7 sm:px-8">
+        {error && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700">
+            <CircleAlert size={15} className="mt-0.5 shrink-0" />
+            {error}
+          </div>
+        )}
+
+        {view.kind === "list" && (
+          <PostList
+            boardTitle={boardTitle}
+            list={list}
+            busy={busy}
+            onOpen={openPost}
+            onPage={(p) => void loadList(p)}
+            onWrite={() => setView({ kind: "write" })}
+          />
+        )}
+
+        {view.kind === "post" && post && (
+          <PostView
+            data={post}
+            busy={busy}
+            onBack={backToList}
+            onEdit={() => setView({ kind: "edit", post: post.post })}
+            onDelete={() => void remove(post.post)}
+          />
+        )}
+
+        {(view.kind === "write" || view.kind === "edit") && (
+          <PostEditor
+            initial={view.kind === "edit" ? view.post : null}
+            mayPin={view.kind === "edit" ? (post?.mayPin ?? false) : (list?.canWrite ?? false)}
+            busy={busy}
+            onCancel={() => (view.kind === "edit" ? setView({ kind: "post", id: view.post.id }) : backToList())}
+            onSave={save}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function fmtDate(s: string) {
+  return s.slice(0, 10).replace(/-/g, ".");
+}
+
+function PostList({
+  boardTitle,
+  list,
+  busy,
+  onOpen,
+  onPage,
+  onWrite,
+}: {
+  boardTitle: string;
+  list: ListState | null;
+  busy: boolean;
+  onOpen: (id: string) => void;
+  onPage: (page: number) => void;
+  onWrite: () => void;
+}) {
+  if (!list) {
+    return <p className="py-16 text-center text-[13.5px] text-ink-400">불러오는 중…</p>;
+  }
+
+  // 번호는 고정 글을 빼고 최신 글이 가장 큰 수를 갖도록 내림차순으로 매긴다.
+  const firstNumber = list.listed - (list.page - 1) * 15;
+  const rows = [
+    ...list.pinned.map((post) => ({ post, number: 0 })),
+    ...list.posts.map((post, j) => ({ post, number: firstNumber - j })),
+  ];
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex-1">
+          <h2 className="text-[21px] font-bold text-ink-900">{boardTitle}</h2>
+          <p className="mt-1 text-[12.5px] text-ink-400">
+            전체 {list.total}건 · {list.page} / {list.pageCount} 페이지
+          </p>
+        </div>
+        {list.canWrite && (
+          <button
+            onClick={onWrite}
+            className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-brand-700"
+          >
+            <Plus size={15} />
+            글쓰기
+          </button>
+        )}
+      </div>
+
+      <div className="mt-5 overflow-hidden rounded-xl border border-ink-200">
+        <div className="grid grid-cols-[72px_minmax(0,1fr)_132px_104px_66px] bg-ink-50 text-[12px] font-medium text-ink-500">
+          <div className="px-3 py-3 text-center">번호</div>
+          <div className="px-2 py-3">제목</div>
+          <div className="px-3 py-3 text-center">작성자</div>
+          <div className="px-3 py-3 text-center">등록일</div>
+          <div className="px-3 py-3 text-center">조회</div>
+        </div>
+
+        {rows.length === 0 ? (
+          <p className="border-t border-ink-100 px-4 py-16 text-center text-[13.5px] text-ink-400">
+            아직 등록된 글이 없습니다.
+            {list.canWrite && " 첫 글을 올려 보세요."}
+          </p>
+        ) : (
+          rows.map(({ post: p, number }) => (
+            <button
+              key={p.id}
+              onClick={() => onOpen(p.id)}
+              className="grid w-full grid-cols-[72px_minmax(0,1fr)_132px_104px_66px] items-center border-t border-ink-100 text-left transition-colors hover:bg-ink-50"
+            >
+              <span className="px-3 py-3.5 text-center">
+                {p.pinned ? (
+                  <span className="inline-block whitespace-nowrap rounded bg-brand-50 px-1.5 py-0.5 text-[11.5px] font-medium text-brand-700">
+                    공지
+                  </span>
+                ) : (
+                  <span className="text-[13px] text-ink-400">{number}</span>
+                )}
+              </span>
+              <span
+                className={`truncate px-2 py-3.5 text-[13.5px] text-ink-900 ${
+                  p.pinned ? "font-bold" : ""
+                }`}
+              >
+                {p.title}
+              </span>
+              <span className="truncate px-3 py-3.5 text-center text-[13px] text-ink-500">
+                {p.authorName ?? "—"}
+              </span>
+              <span className="px-3 py-3.5 text-center text-[13px] text-ink-400">
+                {fmtDate(p.createdAt)}
+              </span>
+              <span className="px-3 py-3.5 text-center text-[13px] text-ink-400">{p.views}</span>
+            </button>
+          ))
+        )}
+      </div>
+
+      {list.pageCount > 1 && (
+        <div className="mt-5 flex items-center justify-center gap-1">
+          <PageBtn disabled={list.page <= 1 || busy} onClick={() => onPage(list.page - 1)}>
+            <ChevronLeft size={15} />
+          </PageBtn>
+          {Array.from({ length: list.pageCount }, (_, i) => i + 1)
+            .filter((n) => Math.abs(n - list.page) <= 2 || n === 1 || n === list.pageCount)
+            .map((n, i, arr) => (
+              <span key={n} className="flex items-center gap-1">
+                {i > 0 && arr[i - 1] !== n - 1 && <span className="px-1 text-ink-300">…</span>}
+                <button
+                  onClick={() => onPage(n)}
+                  disabled={busy}
+                  className={`grid h-[30px] min-w-[30px] place-items-center rounded-md px-1.5 text-[13px] transition-colors ${
+                    n === list.page
+                      ? "bg-brand-600 font-medium text-white"
+                      : "text-ink-600 hover:bg-ink-100"
+                  }`}
+                >
+                  {n}
+                </button>
+              </span>
+            ))}
+          <PageBtn
+            disabled={list.page >= list.pageCount || busy}
+            onClick={() => onPage(list.page + 1)}
+          >
+            <ChevronRight size={15} />
+          </PageBtn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PageBtn({
+  children,
+  disabled,
+  onClick,
+}: {
+  children: React.ReactNode;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="grid h-[30px] w-[30px] place-items-center rounded-md text-ink-500 transition-colors hover:bg-ink-100 disabled:opacity-30 disabled:hover:bg-transparent"
+    >
+      {children}
+    </button>
+  );
+}
+
+function PostView({
+  data,
+  busy,
+  onBack,
+  onEdit,
+  onDelete,
+}: {
+  data: { post: Post; mayEdit: boolean };
+  busy: boolean;
+  onBack: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { post, mayEdit } = data;
+  return (
+    <article>
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] font-medium text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-800"
+      >
+        <ArrowLeft size={15} />
+        목록
+      </button>
+
+      <header className="mt-3 border-b border-ink-200 pb-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {post.pinned && (
+            <span className="flex items-center gap-1 rounded bg-brand-50 px-2 py-0.5 text-[11.5px] font-medium text-brand-700">
+              <Pin size={11} />
+              공지
+            </span>
+          )}
+          <h2 className="text-[20px] font-bold leading-snug text-ink-900">{post.title}</h2>
+        </div>
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-ink-400">
+          <span>{post.authorName ?? "—"}</span>
+          <span>{post.createdAt.slice(0, 16).replace(/-/g, ".")}</span>
+          <span>조회 {post.views}</span>
+          {post.updatedAt !== post.createdAt && <span>수정됨</span>}
+          {mayEdit && (
+            <span className="ml-auto flex items-center gap-1">
+              <button
+                onClick={onEdit}
+                disabled={busy}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-800"
+              >
+                <Pencil size={13} />
+                수정
+              </button>
+              <button
+                onClick={onDelete}
+                disabled={busy}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-ink-500 transition-colors hover:bg-red-50 hover:text-red-600"
+              >
+                <Trash2 size={13} />
+                삭제
+              </button>
+            </span>
+          )}
+        </div>
+      </header>
+
+      {/* 본문은 마크다운으로 그린다. 원시 HTML은 일부러 허용하지 않는다. */}
+      <div className="prose-board py-6 text-[14.5px] leading-[1.75] text-ink-800">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{post.content}</ReactMarkdown>
+      </div>
+    </article>
+  );
+}
+
+function PostEditor({
+  initial,
+  mayPin,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  initial: Post | null;
+  mayPin: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (d: { title: string; content: string; pinned: boolean }) => Promise<boolean>;
+}) {
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [content, setContent] = useState(initial?.content ?? "");
+  const [pinned, setPinned] = useState(initial?.pinned ?? false);
+
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!title.trim() || !content.trim()) return;
+        await onSave({ title, content, pinned });
+      }}
+    >
+      <h2 className="text-[19px] font-bold text-ink-900">
+        {initial ? "글 수정" : "새 글 쓰기"}
+      </h2>
+
+      <input
+        autoFocus
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="제목"
+        className="mt-4 w-full rounded-lg border border-ink-300 px-3.5 py-2.5 text-[15px] font-medium outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+      />
+
+      <textarea
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        placeholder="내용을 입력하세요. 마크다운을 쓸 수 있습니다."
+        rows={16}
+        className="mt-3 w-full resize-y rounded-lg border border-ink-300 px-3.5 py-3 text-[14px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+      />
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        {mayPin && (
+          <label className="flex cursor-pointer items-center gap-1.5 text-[13px] text-ink-700">
+            <input
+              type="checkbox"
+              checked={pinned}
+              onChange={(e) => setPinned(e.target.checked)}
+              className="h-4 w-4 rounded border-ink-300 accent-brand-600"
+            />
+            맨 위에 공지로 고정
+          </label>
+        )}
+        <div className="ml-auto flex gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg border border-ink-300 px-3.5 py-2 text-[13px] font-medium text-ink-600 transition-colors hover:bg-ink-50"
+          >
+            취소
+          </button>
+          <button
+            type="submit"
+            disabled={busy || !title.trim() || !content.trim()}
+            className="rounded-lg bg-brand-600 px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-40"
+          >
+            {busy ? "저장 중…" : initial ? "수정 저장" : "등록"}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
