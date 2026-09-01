@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { envAdminEmails, findMemberByEmail } from "@/lib/members";
 
 export type Viewer = {
   id: string;
@@ -8,17 +9,35 @@ export type Viewer = {
   role: "admin" | "member";
 };
 
-/** 로그인한 사람. 비로그인이면 null. */
+/**
+ * 로그인한 사람. 비로그인이면 null.
+ *
+ * 신원의 기준은 토큰에 박힌 id 가 아니라 **이메일**이다.
+ * 구성원 행의 id 가 바뀌거나(시스템 통합 등) 지웠다 다시 만들어져도
+ * 이미 발급된 세션이 엉뚱한 id 로 글을 쓰는 일이 없다.
+ * 권한 변경도 다시 로그인하지 않고 바로 반영된다.
+ */
 export async function getViewer(): Promise<Viewer | null> {
   const session = await auth();
-  if (!session?.user?.email) return null;
+  const email = session?.user?.email?.toLowerCase();
+  if (!email) return null;
+
+  const member = await findMemberByEmail(email);
+
   return {
-    id: session.user.id,
-    email: session.user.email,
-    name: session.user.name ?? null,
-    image: session.user.image ?? null,
-    role: session.user.role ?? "member",
+    // 구성원 행이 아직 없으면(첫 로그인 직후 등) 토큰의 id 로 버틴다.
+    id: member?.id ?? session.user.id ?? "",
+    email,
+    name: member?.name ?? session.user.name ?? null,
+    image: member?.image ?? session.user.image ?? null,
+    role: resolveRole(email, member?.role),
   };
+}
+
+/** ADMIN_EMAILS 는 잠금 해제용이라 DB 값보다 앞선다. */
+function resolveRole(email: string, dbRole?: "admin" | "member"): "admin" | "member" {
+  if (envAdminEmails().includes(email)) return "admin";
+  return dbRole === "admin" ? "admin" : "member";
 }
 
 /** API 라우트용 가드. 통과하면 Viewer, 아니면 그대로 반환할 Response. */
