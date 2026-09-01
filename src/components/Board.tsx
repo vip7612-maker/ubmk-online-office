@@ -1,28 +1,46 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  Download,
+  Paperclip,
   Pencil,
   Pin,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
+import { useConfirm } from "@/components/Confirm";
+import { RichEditor } from "@/components/RichEditor";
+import type { Attachment } from "@/lib/attachments";
 import type { Post, PostSummary } from "@/lib/posts";
 
 type ListState = {
   pinned: PostSummary[];
   posts: PostSummary[];
-  total: number;   // 고정 글까지 포함한 전체
-  listed: number;  // 고정을 뺀 수 — 번호와 쪽 나눔의 기준
+  total: number; // 고정 글까지 포함한 전체
+  listed: number; // 고정을 뺀 수 — 번호와 쪽 나눔의 기준
   page: number;
   pageCount: number;
   canWrite: boolean;
+};
+
+type PostState = {
+  post: Post;
+  attachments: Attachment[];
+  mayEdit: boolean;
+  mayPin: boolean;
+};
+
+type Draft = {
+  title: string;
+  content: string;
+  pinned: boolean;
+  attachmentIds: string[];
 };
 
 type View =
@@ -35,9 +53,11 @@ type View =
 export function Board({ boardId, boardTitle }: { boardId: string; boardTitle: string }) {
   const [view, setView] = useState<View>({ kind: "list" });
   const [list, setList] = useState<ListState | null>(null);
-  const [post, setPost] = useState<{ post: Post; mayEdit: boolean; mayPin: boolean } | null>(null);
+  const [post, setPost] = useState<PostState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { ask, dialog } = useConfirm();
 
   const loadList = useCallback(
     async (page = 1) => {
@@ -90,7 +110,7 @@ export function Board({ boardId, boardTitle }: { boardId: string; boardTitle: st
     void loadList(list?.page ?? 1);
   };
 
-  const save = async (draft: { title: string; content: string; pinned: boolean }) => {
+  const save = async (draft: Draft) => {
     setError(null);
     setBusy(true);
     try {
@@ -122,25 +142,44 @@ export function Board({ boardId, boardTitle }: { boardId: string; boardTitle: st
     }
   };
 
-  const remove = async (target: Post) => {
-    if (!confirm(`'${target.title}' 글을 지울까요?`)) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/posts/${target.id}`, { method: "DELETE" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(body.error ?? "지우지 못했습니다.");
-        return;
-      }
-      backToList();
-    } finally {
-      setBusy(false);
-    }
-  };
+  const remove = (target: Post) =>
+    ask({
+      title: "이 글을 휴지통으로 옮길까요?",
+      detail: `'${target.title}'\n\n바로 사라지지 않고 휴지통에 30일간 보관됩니다. 그 안에는 관리자가 되살릴 수 있습니다.`,
+      confirmLabel: "휴지통으로",
+      danger: true,
+      onConfirm: async () => {
+        setError(null);
+        setBusy(true);
+        try {
+          const res = await fetch(`/api/posts/${target.id}`, { method: "DELETE" });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setError(body.error ?? "지우지 못했습니다.");
+            return;
+          }
+          setNotice(`'${target.title}' 글을 휴지통으로 옮겼습니다.`);
+          backToList();
+        } catch {
+          setError("서버에 연결하지 못했습니다.");
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
 
   return (
     <div className="h-full overflow-y-auto bg-white">
+      {dialog}
       <div className="mx-auto max-w-4xl px-6 py-7 sm:px-8">
+        {notice && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-800">
+            <span className="flex-1">{notice}</span>
+            <button onClick={() => setNotice(null)} aria-label="닫기" className="shrink-0">
+              <X size={14} />
+            </button>
+          </div>
+        )}
         {error && (
           <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700">
             <CircleAlert size={15} className="mt-0.5 shrink-0" />
@@ -165,16 +204,21 @@ export function Board({ boardId, boardTitle }: { boardId: string; boardTitle: st
             busy={busy}
             onBack={backToList}
             onEdit={() => setView({ kind: "edit", post: post.post })}
-            onDelete={() => void remove(post.post)}
+            onDelete={() => remove(post.post)}
           />
         )}
 
         {(view.kind === "write" || view.kind === "edit") && (
           <PostEditor
+            boardId={boardId}
             initial={view.kind === "edit" ? view.post : null}
+            initialAttachments={view.kind === "edit" ? (post?.attachments ?? []) : []}
             mayPin={view.kind === "edit" ? (post?.mayPin ?? false) : (list?.canWrite ?? false)}
             busy={busy}
-            onCancel={() => (view.kind === "edit" ? setView({ kind: "post", id: view.post.id }) : backToList())}
+            onError={setError}
+            onCancel={() =>
+              view.kind === "edit" ? setView({ kind: "post", id: view.post.id }) : backToList()
+            }
             onSave={save}
           />
         )}
@@ -185,6 +229,12 @@ export function Board({ boardId, boardTitle }: { boardId: string; boardTitle: st
 
 function fmtDate(s: string) {
   return s.slice(0, 10).replace(/-/g, ".");
+}
+
+function fmtSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function PostList({
@@ -344,13 +394,13 @@ function PostView({
   onEdit,
   onDelete,
 }: {
-  data: { post: Post; mayEdit: boolean };
+  data: PostState;
   busy: boolean;
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const { post, mayEdit } = data;
+  const { post, attachments, mayEdit } = data;
   return (
     <article>
       <button
@@ -399,42 +449,103 @@ function PostView({
         </div>
       </header>
 
-      {/* 본문은 마크다운으로 그린다. 원시 HTML은 일부러 허용하지 않는다. */}
-      <div className="prose-board py-6 text-[14.5px] leading-[1.75] text-ink-800">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{post.content}</ReactMarkdown>
-      </div>
+      {/*
+        본문은 편집기가 만든 HTML이다. 서버가 저장할 때와 내려보낼 때
+        두 번 허용 목록으로 걸러 낸 것만 여기 들어온다.
+      */}
+      <div
+        className="prose-board py-6 text-[14.5px] leading-[1.75] text-ink-800"
+        dangerouslySetInnerHTML={{ __html: post.content }}
+      />
+
+      {attachments.length > 0 && (
+        <div className="mb-6 rounded-xl border border-ink-200 bg-ink-50 p-3.5">
+          <p className="mb-2 flex items-center gap-1.5 text-[12.5px] font-medium text-ink-600">
+            <Paperclip size={13} />
+            첨부파일 {attachments.length}개
+          </p>
+          <ul className="flex flex-col gap-1">
+            {attachments.map((a) => (
+              <li key={a.id}>
+                <a
+                  href={a.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download={a.filename}
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-ink-700 transition-colors hover:bg-white"
+                >
+                  <Download size={13} className="shrink-0 text-ink-400" />
+                  <span className="truncate">{a.filename}</span>
+                  <span className="shrink-0 text-[12px] text-ink-400">{fmtSize(a.size)}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </article>
   );
 }
 
 function PostEditor({
+  boardId,
   initial,
+  initialAttachments,
   mayPin,
   busy,
+  onError,
   onCancel,
   onSave,
 }: {
+  boardId: string;
   initial: Post | null;
+  initialAttachments: Attachment[];
   mayPin: boolean;
   busy: boolean;
+  onError: (m: string | null) => void;
   onCancel: () => void;
-  onSave: (d: { title: string; content: string; pinned: boolean }) => Promise<boolean>;
+  onSave: (d: Draft) => Promise<boolean>;
 }) {
   const [title, setTitle] = useState(initial?.title ?? "");
   const [content, setContent] = useState(initial?.content ?? "");
   const [pinned, setPinned] = useState(initial?.pinned ?? false);
+  const [files, setFiles] = useState<Attachment[]>(initialAttachments);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const upload = async (chosen: FileList) => {
+    setUploading(true);
+    try {
+      for (const file of Array.from(chosen)) {
+        const fd = new FormData();
+        fd.set("file", file);
+        fd.set("boardId", boardId);
+        const res = await fetch("/api/uploads", { method: "POST", body: fd });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          onError(body.error ?? `'${file.name}' 을(를) 올리지 못했습니다.`);
+          continue;
+        }
+        setFiles((prev) => [...prev, body.attachment]);
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // 본문에 글씨가 하나도 없으면 저장하지 않는다. 빈 태그만 있는 경우를 걸러 낸다.
+  const hasBody = content.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0
+    || /<img\s/i.test(content);
 
   return (
     <form
       onSubmit={async (e) => {
         e.preventDefault();
-        if (!title.trim() || !content.trim()) return;
-        await onSave({ title, content, pinned });
+        if (!title.trim() || !hasBody) return;
+        await onSave({ title, content, pinned, attachmentIds: files.map((f) => f.id) });
       }}
     >
-      <h2 className="text-[19px] font-bold text-ink-900">
-        {initial ? "글 수정" : "새 글 쓰기"}
-      </h2>
+      <h2 className="text-[19px] font-bold text-ink-900">{initial ? "글 수정" : "새 글 쓰기"}</h2>
 
       <input
         autoFocus
@@ -444,13 +555,66 @@ function PostEditor({
         className="mt-4 w-full rounded-lg border border-ink-300 px-3.5 py-2.5 text-[15px] font-medium outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
       />
 
-      <textarea
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        placeholder="내용을 입력하세요. 마크다운을 쓸 수 있습니다."
-        rows={16}
-        className="mt-3 w-full resize-y rounded-lg border border-ink-300 px-3.5 py-3 text-[14px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
-      />
+      <div className="mt-3">
+        <RichEditor
+          boardId={boardId}
+          initialHtml={initial?.content ?? ""}
+          onChange={setContent}
+          onError={onError}
+        />
+      </div>
+
+      <div className="mt-3 rounded-lg border border-ink-200 bg-ink-50 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="flex items-center gap-1.5 rounded-lg border border-ink-300 bg-white px-3 py-1.5 text-[12.5px] font-medium text-ink-700 transition-colors hover:bg-ink-50 disabled:opacity-50"
+          >
+            <Paperclip size={14} />
+            파일 첨부
+          </button>
+          <span className="text-[12px] text-ink-400">
+            {uploading ? "올리는 중…" : "한 개당 20MB까지"}
+          </span>
+        </div>
+
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const fs = e.target.files;
+            e.target.value = "";
+            if (fs?.length) void upload(fs);
+          }}
+        />
+
+        {files.length > 0 && (
+          <ul className="mt-2.5 flex flex-col gap-1">
+            {files.map((f) => (
+              <li
+                key={f.id}
+                className="flex items-center gap-2 rounded-md bg-white px-2.5 py-1.5 text-[13px]"
+              >
+                <Paperclip size={12} className="shrink-0 text-ink-400" />
+                <span className="truncate text-ink-700">{f.filename}</span>
+                <span className="shrink-0 text-[12px] text-ink-400">{fmtSize(f.size)}</span>
+                <button
+                  type="button"
+                  onClick={() => setFiles((prev) => prev.filter((x) => x.id !== f.id))}
+                  title="목록에서 빼기"
+                  className="ml-auto shrink-0 rounded p-1 text-ink-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                >
+                  <X size={13} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         {mayPin && (
@@ -474,7 +638,7 @@ function PostEditor({
           </button>
           <button
             type="submit"
-            disabled={busy || !title.trim() || !content.trim()}
+            disabled={busy || uploading || !title.trim() || !hasBody}
             className="rounded-lg bg-brand-600 px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-40"
           >
             {busy ? "저장 중…" : initial ? "수정 저장" : "등록"}

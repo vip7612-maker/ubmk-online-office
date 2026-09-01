@@ -108,3 +108,35 @@ body {
 .prose-board th { background: var(--color-ink-50); font-weight: 500; }
 .prose-board img { max-width: 100%; border-radius: 8px; }
 .prose-board hr { border: 0; border-top: 1px solid var(--color-ink-200); }
+
+/* 편집기 안쪽 — 본문(.prose-board)과 같은 모양으로 보이게 한다. */
+.tiptap { outline: none; }
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-ink-300);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+.tiptap .editor-image,
+.prose-board img { max-width: 100%; height: auto; border-radius: 8px; }
+.tiptap table,
+.prose-board table { table-layout: fixed; }
+.tiptap .selectedCell:after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklab, var(--color-brand-500) 14%, transparent);
+  pointer-events: none;
+}
+.tiptap td, .tiptap th { position: relative; }
+.tiptap .column-resize-handle {
+  position: absolute;
+  right: -2px; top: 0; bottom: 0; width: 4px;
+  background: var(--color-brand-500);
+  pointer-events: none;
+}
+
+/* 즐겨찾기 탭 줄 — 넘치면 가로로 민다. 스크롤바는 숨긴다. */
+.scroll-tabs { scrollbar-width: none; }
+.scroll-tabs::-webkit-scrollbar { display: none; }

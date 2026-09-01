@@ -1,6 +1,8 @@
 import { canRead, canWrite, getBoard } from "@/lib/board-access";
 import { isResponse, requireViewer } from "@/lib/guard";
 import { bumpViews, getPost, softDeletePost, updatePost } from "@/lib/posts";
+import { attachToPost, listAttachments } from "@/lib/attachments";
+import { htmlToText, sanitizePostHtml } from "@/lib/sanitize";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -24,7 +26,9 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   await bumpViews(id);
   return Response.json({
-    post: { ...post, views: post.views + 1 },
+    // 내려보낼 때도 한 번 더 거른다. 규칙이 바뀌어도 옛 글이 새 규칙을 따른다.
+    post: { ...post, content: sanitizePostHtml(post.content), views: post.views + 1 },
+    attachments: await listAttachments(id),
     mayEdit: mayEdit(post.authorId, viewer.id, viewer.role === "admin"),
     mayPin: viewer.role === "admin",
   });
@@ -52,17 +56,32 @@ export async function PATCH(req: Request, ctx: Ctx) {
     return Response.json({ error: "제목은 비울 수 없습니다." }, { status: 400 });
   }
 
+  if (body.content !== undefined && !htmlToText(sanitizePostHtml(String(body.content)))) {
+    return Response.json({ error: "내용은 비울 수 없습니다." }, { status: 400 });
+  }
+
   await updatePost(id, {
     ...(body.title !== undefined ? { title: String(body.title) } : {}),
-    ...(body.content !== undefined ? { content: String(body.content) } : {}),
+    ...(body.content !== undefined
+      ? { content: sanitizePostHtml(String(body.content)) }
+      : {}),
     // 고정은 관리자만 바꿀 수 있다.
     ...(body.pinned !== undefined && viewer.role === "admin"
       ? { pinned: Boolean(body.pinned) }
       : {}),
   });
 
+  if (Array.isArray(body.attachmentIds)) {
+    await attachToPost(id, body.attachmentIds.map(String), viewer.id, viewer.role === "admin");
+  }
+
   const saved = await getPost(id);
-  return Response.json({ post: saved, mayEdit: true, mayPin: viewer.role === "admin" });
+  return Response.json({
+    post: saved,
+    attachments: await listAttachments(id),
+    mayEdit: true,
+    mayPin: viewer.role === "admin",
+  });
 }
 
 export async function DELETE(_req: Request, ctx: Ctx) {
@@ -78,7 +97,7 @@ export async function DELETE(_req: Request, ctx: Ctx) {
     return Response.json({ error: "내가 쓴 글만 지울 수 있습니다." }, { status: 403 });
   }
 
-  // 행은 남기고 표시만 한다 — 실수로 지운 글을 되살릴 수 있게.
-  await softDeletePost(id);
+  // 행은 남기고 휴지통 표시만 한다. 30일 뒤 청소 작업이 실제로 지운다.
+  await softDeletePost(id, { id: viewer.id, name: viewer.name ?? viewer.email });
   return Response.json({ ok: true, boardId: post.boardId });
 }

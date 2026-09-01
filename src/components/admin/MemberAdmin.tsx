@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CircleAlert, Shield, Trash2, UserPlus } from "lucide-react";
+import { useConfirm } from "@/components/Confirm";
 import type { Member, Role } from "@/lib/members";
 
 export function MemberAdmin({
@@ -16,6 +17,7 @@ export function MemberAdmin({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const { ask, dialog } = useConfirm();
 
   /** 요청을 보내고, 응답에 실려 온 최신 명단으로 화면을 갈아 끼운다. */
   const run = async (fn: () => Promise<Response>) => {
@@ -47,13 +49,18 @@ export function MemberAdmin({
       }),
     );
 
-  const remove = (m: Member) => {
-    if (!confirm(`${m.name ?? m.email} 님을 목록에서 삭제할까요?`)) return;
-    run(() => fetch(`/api/members/${m.id}`, { method: "DELETE" }));
-  };
+  const remove = (m: Member) =>
+    ask({
+      title: `${m.name ?? m.email} 님을 목록에서 삭제할까요?`,
+      detail: `${m.email}\n\n이 사람이 쓴 글은 그대로 남습니다. 다시 로그인하면 새로 등록되니, 아예 막으려면 삭제 대신 '사용'을 끄세요.`,
+      confirmLabel: "삭제",
+      danger: true,
+      onConfirm: () => run(() => fetch(`/api/members/${m.id}`, { method: "DELETE" })).then(() => {}),
+    });
 
   return (
     <div>
+      {dialog}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button
           onClick={() => setAdding((v) => !v)}

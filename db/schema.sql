@@ -50,11 +50,47 @@ CREATE TABLE IF NOT EXISTS posts (
   author_name TEXT,          -- 작성 당시 이름. 나중에 구성원이 지워져도 남는다.
   pinned      INTEGER NOT NULL DEFAULT 0,
   views       INTEGER NOT NULL DEFAULT 0,
-  -- 삭제는 표시만 한다. 실제로 행을 지우지 않아 되살릴 수 있다.
-  deleted_at  TEXT,
+  -- 삭제는 표시만 한다(휴지통). 30일이 지나면 청소 작업이 완전히 지운다.
+  deleted_at      TEXT,
+  deleted_by      TEXT,
+  deleted_by_name TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_board ON posts(board_id, pinned DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_live  ON posts(board_id, deleted_at);
+
+-- ── 첨부파일 ────────────────────────────────────────────────────
+-- 실제 파일은 Vercel Blob 에 있고 여기에는 가리키는 정보만 둔다.
+-- posts 와 마찬가지로 외래키를 걸지 않는다 — 글을 지워도 파일 기록은 남는다.
+CREATE TABLE IF NOT EXISTS attachments (
+  id            TEXT PRIMARY KEY,
+  post_id       TEXT,          -- 글을 저장하기 전 올린 파일은 NULL
+  board_id      TEXT,
+  filename      TEXT NOT NULL, -- 사용자가 올린 원래 이름
+  url           TEXT NOT NULL,
+  pathname      TEXT NOT NULL, -- Blob 안의 경로 (지울 때 쓴다)
+  size          INTEGER NOT NULL DEFAULT 0,
+  mime          TEXT,
+  kind          TEXT NOT NULL DEFAULT 'file',  -- 'file' | 'image'(본문에 삽입)
+  uploaded_by   TEXT,
+  uploader_name TEXT,
+  deleted_at    TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_att_post ON attachments(post_id, deleted_at);
+
+-- ── 즐겨찾기 ────────────────────────────────────────────────────
+-- 사람마다 매일 여는 메뉴가 다르므로 개인별로 둔다.
+-- 우측 상단 탭으로 올라간다. 여기도 외래키를 걸지 않는다.
+CREATE TABLE IF NOT EXISTS favorites (
+  member_id    TEXT NOT NULL,
+  menu_item_id TEXT NOT NULL,
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (member_id, menu_item_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fav_member ON favorites(member_id, sort_order);

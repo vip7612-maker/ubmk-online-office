@@ -1,6 +1,8 @@
 import { canRead, canWrite, getBoard } from "@/lib/board-access";
 import { isResponse, requireViewer } from "@/lib/guard";
 import { createPost, listPosts } from "@/lib/posts";
+import { attachToPost } from "@/lib/attachments";
+import { htmlToText, sanitizePostHtml } from "@/lib/sanitize";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -36,9 +38,12 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const body = await req.json().catch(() => null);
   const title = typeof body?.title === "string" ? body.title.trim() : "";
-  const content = typeof body?.content === "string" ? body.content : "";
+  // 편집기가 준 HTML은 믿지 않는다. 허용 목록만 남기고 걸러 낸다.
+  const content = sanitizePostHtml(typeof body?.content === "string" ? body.content : "");
   if (!title) return Response.json({ error: "제목을 입력하세요." }, { status: 400 });
-  if (!content.trim()) return Response.json({ error: "내용을 입력하세요." }, { status: 400 });
+  if (!htmlToText(content)) {
+    return Response.json({ error: "내용을 입력하세요." }, { status: 400 });
+  }
 
   const postId = await createPost({
     boardId: id,
@@ -49,6 +54,10 @@ export async function POST(req: Request, ctx: Ctx) {
     // 고정은 관리자만 걸 수 있다.
     pinned: viewer.role === "admin" && Boolean(body.pinned),
   });
+
+  if (Array.isArray(body.attachmentIds)) {
+    await attachToPost(postId, body.attachmentIds.map(String), viewer.id, viewer.role === "admin");
+  }
 
   return Response.json(
     { id: postId, canWrite: true, ...(await listPosts(id, 1)) },

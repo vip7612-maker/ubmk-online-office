@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ListTree, Users } from "lucide-react";
+import { ListTree, Trash2, Users } from "lucide-react";
 import { MenuAdmin } from "@/components/admin/MenuAdmin";
 import { MemberAdmin } from "@/components/admin/MemberAdmin";
+import { TrashAdmin } from "@/components/admin/TrashAdmin";
 import type { MenuNode } from "@/lib/menu";
 import type { Member } from "@/lib/members";
 
-type Tab = "menu" | "members";
+type Tab = "menu" | "members" | "trash";
 
 export function AdminTabs({
   initialTree,
@@ -43,13 +44,17 @@ export function AdminTabs({
             {members.length}
           </span>
         </button>
+        <button onClick={() => setTab("trash")} className={tabClass("trash")}>
+          <Trash2 size={15} />
+          휴지통
+        </button>
       </div>
 
-      {tab === "menu" ? (
-        <MenuAdmin initialTree={initialTree} />
-      ) : (
+      {tab === "menu" && <MenuAdmin initialTree={initialTree} />}
+      {tab === "members" && (
         <MemberAdmin members={members} setMembers={setMembers} viewerId={viewerId} />
       )}
+      {tab === "trash" && <TrashAdmin />}
     </div>
   );
 }

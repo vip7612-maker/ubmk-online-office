@@ -14,10 +14,12 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
+import { useConfirm } from "@/components/Confirm";
 import type { MenuNode, WriteRole } from "@/lib/menu";
 
 type Draft = {
   title: string;
+  icon: string;
   url: string;
   openInNew: boolean;
   adminOnly: boolean;
@@ -34,6 +36,7 @@ export function MenuAdmin({ initialTree }: { initialTree: MenuNode[] }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [addingUnder, setAddingUnder] = useState<{ parentId: string | null; isCategory: boolean } | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const { ask, dialog } = useConfirm();
 
   /** 요청을 보내고, 응답에 실려 온 최신 트리로 화면을 갈아 끼운다. */
   const run = async (fn: () => Promise<Response>) => {
@@ -74,14 +77,20 @@ export function MenuAdmin({ initialTree }: { initialTree: MenuNode[] }) {
       }),
     );
 
-  const remove = (node: MenuNode) => {
-    const extra = node.children.length ? `\n하위 항목 ${node.children.length}개도 함께 삭제됩니다.` : "";
-    if (!confirm(`'${node.title}'을(를) 삭제할까요?${extra}`)) return;
-    run(() => fetch(`/api/menu/${node.id}`, { method: "DELETE" }));
-  };
+  const remove = (node: MenuNode) =>
+    ask({
+      title: `'${node.title}'을(를) 삭제할까요?`,
+      detail: node.children.length
+        ? `하위 항목 ${node.children.length}개도 함께 삭제됩니다.\n글이 남아 있는 게시판은 삭제되지 않습니다.`
+        : "글이 남아 있는 게시판은 삭제되지 않습니다.",
+      confirmLabel: "삭제",
+      danger: true,
+      onConfirm: () => run(() => fetch(`/api/menu/${node.id}`, { method: "DELETE" })).then(() => {}),
+    });
 
   return (
     <div>
+      {dialog}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button
           onClick={() => {
@@ -156,7 +165,8 @@ export function MenuAdmin({ initialTree }: { initialTree: MenuNode[] }) {
       </div>
 
       <p className="mt-3 text-[12.5px] leading-relaxed text-ink-400">
-        · 주소를 비워두면 <b>카테고리</b>가 되어 하위 항목을 펼치고 접는 용도로만 쓰입니다.
+        · <b>아이콘</b>은 이모지 한 글자를 넣으면 메뉴 앞에 붙습니다. 비워두면 기본 모양이 쓰입니다.
+        <br />· 주소를 비워두면 <b>카테고리</b>가 되어 하위 항목을 펼치고 접는 용도로만 쓰입니다.
         <br />· 주소가 있는 <b>메뉴</b>는 누르면 언제나 오른쪽 화면에 열립니다.
         <br />· <b>앱 안의 게시판</b>으로 두면 외부 주소 대신 이 앱에 글을 쌓는 게시판이 열립니다.
         <br />· 구글·네이버처럼 삽입을 막아둔 사이트는 오른쪽이 비어 보일 수 있습니다. 그런
@@ -218,6 +228,7 @@ function Row(props: RowProps) {
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
+            {node.icon && <span aria-hidden className="text-[14px]">{node.icon}</span>}
             <span className="truncate text-[14px] font-medium text-ink-900">{node.title}</span>
             {node.isBoard ? (
               <Badge className="bg-emerald-100 text-emerald-700">게시판</Badge>
@@ -308,6 +319,7 @@ function Row(props: RowProps) {
             isCategory={isCategory}
             initial={{
               title: node.title,
+              icon: node.icon ?? "",
               url: node.url ?? "",
               openInNew: node.openInNew,
               adminOnly: node.adminOnly,
@@ -372,6 +384,7 @@ function ItemForm({
   const [draft, setDraft] = useState<Draft>(
     initial ?? {
       title: "",
+      icon: "",
       url: "",
       openInNew: false,
       adminOnly: false,
@@ -395,7 +408,17 @@ function ItemForm({
       onSubmit={submit}
       className="rounded-xl border border-ink-200 bg-white p-3.5 shadow-sm"
     >
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-[76px_minmax(0,1fr)] lg:grid-cols-[76px_minmax(0,1fr)_minmax(0,1fr)]">
+        <label className="block">
+          <span className="mb-1 block text-[12px] font-medium text-ink-600">아이콘</span>
+          <input
+            value={draft.icon}
+            onChange={(e) => setDraft({ ...draft, icon: e.target.value })}
+            placeholder="📢"
+            maxLength={4}
+            className="w-full rounded-lg border border-ink-300 px-3 py-2 text-center text-[15px] outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+          />
+        </label>
         <label className="block">
           <span className="mb-1 block text-[12px] font-medium text-ink-600">이름</span>
           <input

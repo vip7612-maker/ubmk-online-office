@@ -162,15 +162,82 @@ export async function updatePost(
   await db.execute({ sql: `UPDATE posts SET ${sets.join(", ")} WHERE id = ?`, args });
 }
 
+/** 휴지통에 남겨 두는 기간. 이 기간이 지나면 청소 작업이 완전히 지운다. */
+export const TRASH_DAYS = 30;
+
+export type TrashedPost = PostSummary & {
+  boardTitle: string | null;
+  deletedAt: string;
+  deletedByName: string | null;
+  /** 완전히 지워지기까지 남은 날수. 0이면 다음 청소 때 사라진다. */
+  daysLeft: number;
+};
+
 /**
- * 글을 지운다 — 표시만 하고 행은 남긴다.
- * 실수로 지웠을 때 db/README 의 복구 쿼리로 되살릴 수 있다.
+ * 글을 휴지통으로 옮긴다 — 표시만 하고 행은 남긴다.
+ * 30일 안에는 관리자가 되살릴 수 있다.
  */
-export async function softDeletePost(id: string): Promise<void> {
+export async function softDeletePost(
+  id: string,
+  by: { id: string; name: string | null },
+): Promise<void> {
   await db.execute({
-    sql: "UPDATE posts SET deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL",
+    sql: `UPDATE posts
+             SET deleted_at = datetime('now'), deleted_by = ?, deleted_by_name = ?
+           WHERE id = ? AND deleted_at IS NULL`,
+    args: [by.id, by.name, id],
+  });
+}
+
+/** 휴지통 목록. 관리자만 본다. */
+export async function listTrash(): Promise<TrashedPost[]> {
+  const res = await db.execute(`
+    SELECT p.*, m.title AS board_title,
+           CAST(julianday(p.deleted_at, '+${TRASH_DAYS} days') - julianday('now') AS INTEGER) AS days_left
+      FROM posts p
+      LEFT JOIN menu_items m ON m.id = p.board_id
+     WHERE p.deleted_at IS NOT NULL
+     ORDER BY p.deleted_at DESC`);
+  return res.rows.map((r) => {
+    const row = r as Row;
+    return {
+      ...toSummary(row),
+      boardTitle: (row.board_title as string) ?? null,
+      deletedAt: String(row.deleted_at),
+      deletedByName: (row.deleted_by_name as string) ?? null,
+      daysLeft: Math.max(0, Number(row.days_left ?? 0)),
+    };
+  });
+}
+
+/** 휴지통에서 되살린다. */
+export async function restorePost(id: string): Promise<void> {
+  await db.execute({
+    sql: "UPDATE posts SET deleted_at = NULL, deleted_by = NULL, deleted_by_name = NULL WHERE id = ?",
     args: [id],
   });
+}
+
+/** 되돌릴 수 없는 삭제. 휴지통 안의 글에만 쓴다. */
+export async function purgePost(id: string): Promise<void> {
+  await db.execute({
+    sql: "DELETE FROM posts WHERE id = ? AND deleted_at IS NOT NULL",
+    args: [id],
+  });
+}
+
+/** 30일이 지난 휴지통 글을 실제로 지운다. 지운 글의 id 를 돌려준다. */
+export async function purgeExpired(): Promise<string[]> {
+  const res = await db.execute(
+    `SELECT id FROM posts
+      WHERE deleted_at IS NOT NULL
+        AND datetime(deleted_at, '+${TRASH_DAYS} days') <= datetime('now')`,
+  );
+  const ids = res.rows.map((r) => String((r as Row).id));
+  for (const id of ids) {
+    await db.execute({ sql: "DELETE FROM posts WHERE id = ?", args: [id] });
+  }
+  return ids;
 }
 
 /** 게시판을 지워도 되는지 판단할 때 쓴다. */
