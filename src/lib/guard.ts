@@ -18,18 +18,18 @@ export type Viewer = {
  * 권한 변경도 다시 로그인하지 않고 바로 반영된다.
  */
 export async function getViewer(): Promise<Viewer | null> {
-  const session = await auth();
-  const email = session?.user?.email?.toLowerCase();
-  if (!email) return null;
+  const sessionUser = (await auth())?.user;
+  const email = sessionUser?.email?.toLowerCase();
+  if (!sessionUser || !email) return null;
 
   const member = await findMemberByEmail(email);
 
   return {
     // 구성원 행이 아직 없으면(첫 로그인 직후 등) 토큰의 id 로 버틴다.
-    id: member?.id ?? session.user.id ?? "",
+    id: member?.id ?? sessionUser.id ?? "",
     email,
-    name: member?.name ?? session.user.name ?? null,
-    image: member?.image ?? session.user.image ?? null,
+    name: member?.name ?? sessionUser.name ?? null,
+    image: member?.image ?? sessionUser.image ?? null,
     role: resolveRole(email, member?.role),
   };
 }
